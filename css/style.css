@@ -229,3 +229,32 @@ body {
     padding-top: 0.35rem;
   }
 }
+
+.mute-btn {
+  appearance: none;
+  flex: 0 0 auto;
+  min-width: 3.4rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(120, 200, 255, 0.5);
+  background: linear-gradient(180deg, rgba(20, 70, 110, 0.9), rgba(10, 30, 60, 0.95));
+  color: #7cf9ff;
+  font: inherit;
+  font-size: clamp(0.72rem, 3vw, 0.88rem);
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(80, 200, 255, 0.25);
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+
+.mute-btn[aria-pressed="true"] {
+  border-color: rgba(180, 120, 255, 0.55);
+  background: linear-gradient(180deg, rgba(50, 30, 90, 0.9), rgba(20, 12, 50, 0.95));
+  color: #c8b0ff;
+  box-shadow: 0 0 10px rgba(140, 80, 255, 0.25);
+}
+
+.mute-btn:active {
+  transform: scale(0.96);
+}

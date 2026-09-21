@@ -15,6 +15,7 @@
       <div class="hud-item">距离 <span id="distance">0</span>m</div>
       <div class="hud-item">速度 <span id="speed">0</span></div>
       <div class="hud-item">最高 <span id="best">0</span>m</div>
+      <button type="button" id="btn-mute" class="mute-btn" aria-pressed="false" aria-label="静音切换">静音</button>
     </header>
 
     <div id="canvas-wrap">
@@ -36,10 +37,11 @@
     </div>
 
     <footer class="help">
-      <p><strong>操作：</strong>触屏左右转向、中间加速；键盘 ←→ / A D 转向，↑ / W / 空格 加速。碰撞即结束，可重开。</p>
+      <p><strong>操作：</strong>触屏左右转向、中间加速；键盘 ←→ / A D 转向，↑ / W / 空格 加速。碰撞即结束，可重开。右上角可静音。</p>
     </footer>
   </div>
 
+  <script src="js/audio.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

@@ -18,6 +18,8 @@
   const BEST_KEY = "neon-racing-best";
   const BASE_W = 360;
   const BASE_H = 640;
+  const btnMute = document.getElementById("btn-mute");
+  const SFX = window.AudioFX || null;
 
   const state = {
     mode: "title", // title | playing | over
@@ -36,9 +38,20 @@
     shake: 0,
     lastTs: 0,
     roadPulse: 0,
+    nextMilestone: 500,
   };
 
   elBest.textContent = String(Math.floor(state.best));
+
+  function syncMuteUI() {
+    if (!btnMute || !SFX) return;
+    const muted = SFX.isMuted();
+    btnMute.setAttribute("aria-pressed", muted ? "true" : "false");
+    btnMute.textContent = muted ? "音效" : "静音";
+    btnMute.setAttribute("aria-label", muted ? "开启音效" : "关闭音效");
+  }
+
+  syncMuteUI();
 
   function resizeCanvas() {
     const wrap = document.getElementById("canvas-wrap");
@@ -86,6 +99,7 @@
     state.obstacleTimer = 1.6;
     state.shake = 0;
     state.roadPulse = 0;
+    state.nextMilestone = 500;
   }
 
   function showOverlay(title, sub, body, btnText) {
@@ -101,6 +115,12 @@
   }
 
   function startGame() {
+    if (SFX) {
+      SFX.unlock();
+      SFX.click();
+      SFX.start();
+      SFX.startEngine();
+    }
     resetRun();
     state.mode = "playing";
     hideOverlay();
@@ -108,6 +128,10 @@
 
   function endGame() {
     state.mode = "over";
+    if (SFX) {
+      SFX.crash();
+      SFX.gameOver();
+    }
     const dist = Math.floor(state.distance);
     if (dist > state.best) {
       state.best = dist;
@@ -203,6 +227,7 @@
     if (state.mode !== "playing") {
       state.roadOffset += 120 * dt;
       state.roadPulse += dt;
+      if (SFX) SFX.stopEngine();
       return;
     }
 
@@ -291,6 +316,16 @@
         color: Math.random() < 0.5 ? "#7cf9ff" : "#ff6ec7",
         size: rand(1.5, 3.5) * state.scale,
       });
+    }
+
+    // engine hum + milestones
+    if (SFX) {
+      const speedNorm = Math.min(1, Math.max(0, (state.speed - 180) / 280));
+      SFX.updateEngine(speedNorm, !!accelBoost);
+      while (state.distance >= state.nextMilestone) {
+        SFX.milestone();
+        state.nextMilestone += 500;
+      }
     }
 
     elDistance.textContent = String(Math.floor(state.distance));
@@ -494,10 +529,15 @@
 
   // --- input ---
   function setKey(name, down) {
+    const wasDown = state.keys[name];
     state.keys[name] = down;
     const map = { left: btnLeft, right: btnRight, accel: btnAccel };
     const el = map[name];
     if (el) el.classList.toggle("active", down);
+    if (down && !wasDown && SFX) {
+      SFX.click();
+      if (name === "left" || name === "right") SFX.steer();
+    }
   }
 
   function bindTouchButton(el, name) {
@@ -549,6 +589,18 @@
     e.preventDefault();
     startGame();
   });
+
+  if (btnMute) {
+    btnMute.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (SFX) {
+        SFX.toggleMute();
+        if (!SFX.isMuted()) SFX.click();
+      }
+      syncMuteUI();
+    });
+  }
 
   // prevent page scroll/zoom while playing
   document.addEventListener(
