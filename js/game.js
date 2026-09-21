@@ -39,6 +39,14 @@
     lastTs: 0,
     roadPulse: 0,
     nextMilestone: 500,
+    swipe: {
+      active: false,
+      pointerId: null,
+      startX: 0,
+      lastX: 0,
+      steer: 0,
+      moved: false,
+    },
   };
 
   elBest.textContent = String(Math.floor(state.best));
@@ -100,6 +108,15 @@
     state.shake = 0;
     state.roadPulse = 0;
     state.nextMilestone = 500;
+    clearSwipe();
+  }
+
+  function clearSwipe() {
+    const s = state.swipe;
+    s.active = false;
+    s.pointerId = null;
+    s.steer = 0;
+    s.moved = false;
   }
 
   function showOverlay(title, sub, body, btnText) {
@@ -128,6 +145,7 @@
 
   function endGame() {
     state.mode = "over";
+    clearSwipe();
     if (SFX) {
       SFX.crash();
       SFX.gameOver();
@@ -232,7 +250,12 @@
     }
 
     const p = state.player;
-    const steer = (state.keys.left ? -1 : 0) + (state.keys.right ? 1 : 0);
+    let steer = (state.keys.left ? -1 : 0) + (state.keys.right ? 1 : 0);
+    if (state.swipe.active) {
+      steer += state.swipe.steer;
+      if (steer > 1) steer = 1;
+      if (steer < -1) steer = -1;
+    }
     const accelBoost = state.keys.accel ? 1 : 0;
 
     // progressive difficulty
@@ -561,8 +584,84 @@
   bindTouchButton(btnRight, "right");
   bindTouchButton(btnAccel, "accel");
 
-  // multitouch: track multiple fingers on canvas-wrap area via controls only
-  // also support holding multiple buttons
+  // Play-area drag / swipe steering (buttons + keyboard still work)
+  const canvasWrap = document.getElementById("canvas-wrap");
+  const SWIPE_DEAD = 10; // px
+  const SWIPE_FULL = 54; // px → full steer
+
+  function clientToCanvasX(clientX) {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width) return clientX;
+    return ((clientX - rect.left) / rect.width) * (state.viewW || rect.width);
+  }
+
+  function updateSwipeFromX(clientX) {
+    const s = state.swipe;
+    if (!s.active || !state.player || state.mode !== "playing") return;
+    const canvasX = clientToCanvasX(clientX);
+    const dxFinger = canvasX - s.lastX;
+    // Car slides with finger for "aim by sliding" feel
+    state.player.x += dxFinger;
+    s.lastX = canvasX;
+
+    const dx = canvasX - s.startX;
+    let steer = 0;
+    if (Math.abs(dx) >= SWIPE_DEAD) {
+      steer = dx / SWIPE_FULL;
+      if (steer > 1) steer = 1;
+      if (steer < -1) steer = -1;
+      if (!s.moved && SFX) {
+        SFX.steer();
+        s.moved = true;
+      }
+    }
+    s.steer = steer;
+  }
+
+  function onPlayPointerDown(e) {
+    if (state.mode !== "playing") return;
+    // Ignore UI controls (mute / arrows / accel / overlay button)
+    if (e.target.closest("button, .tbtn, .mute-btn, #touch-controls, .hud")) return;
+    if (e.target.closest("#overlay") && !overlay.classList.contains("hidden")) return;
+    // Only primary touch / left button
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (state.swipe.active) return;
+
+    e.preventDefault();
+    const canvasX = clientToCanvasX(e.clientX);
+    state.swipe.active = true;
+    state.swipe.pointerId = e.pointerId;
+    state.swipe.startX = canvasX;
+    state.swipe.lastX = canvasX;
+    state.swipe.steer = 0;
+    state.swipe.moved = false;
+    try {
+      canvasWrap.setPointerCapture(e.pointerId);
+    } catch (_) {}
+  }
+
+  function onPlayPointerMove(e) {
+    if (!state.swipe.active || e.pointerId !== state.swipe.pointerId) return;
+    e.preventDefault();
+    updateSwipeFromX(e.clientX);
+  }
+
+  function onPlayPointerUp(e) {
+    if (!state.swipe.active || e.pointerId !== state.swipe.pointerId) return;
+    e.preventDefault();
+    clearSwipe();
+    try {
+      canvasWrap.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  }
+
+  canvasWrap.addEventListener("pointerdown", onPlayPointerDown, { passive: false });
+  canvasWrap.addEventListener("pointermove", onPlayPointerMove, { passive: false });
+  canvasWrap.addEventListener("pointerup", onPlayPointerUp, { passive: false });
+  canvasWrap.addEventListener("pointercancel", onPlayPointerUp, { passive: false });
+  canvasWrap.addEventListener("lostpointercapture", () => {
+    if (state.swipe.active) clearSwipe();
+  });
 
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
@@ -641,7 +740,7 @@
   showOverlay(
     "霓虹狂飙",
     "躲避对手与障碍，冲得越远越好",
-    "触屏左右转向 · 中间加速<br/>键盘 ←→ / A D · ↑ W 空格",
+    "赛道上左右滑动转向 · 也可点 ◀▶<br/>键盘 ←→ / A D · ↑ W 空格加速",
     "开始游戏"
   );
   requestAnimationFrame(loop);
