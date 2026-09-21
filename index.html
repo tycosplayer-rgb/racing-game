@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#07071a" />
   <title>霓虹狂飙 · Racing Game</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=3" />
 </head>
 <body>
   <div id="app">
@@ -20,6 +20,7 @@
 
     <div id="canvas-wrap">
       <canvas id="game" width="360" height="640"></canvas>
+      <div id="drag-layer" class="inactive" aria-hidden="true"></div>
       <div id="overlay" class="overlay">
         <div class="overlay-box">
           <h1 id="overlay-title">霓虹狂飙</h1>
@@ -37,11 +38,11 @@
     </div>
 
     <footer class="help">
-      <p><strong>操作：</strong>赛道上左右滑动转向，或点 ◀▶；中间加速；键盘 ←→ / A D，↑ / W / 空格。碰撞可重开。右上角可静音。</p>
+      <p><strong>操作：</strong>在赛道上左右拖动手指，车子会跟着左右移动；也可点 ◀▶。中间加速；键盘 ←→ / A D。右上角可静音。</p>
     </footer>
   </div>
 
-  <script src="js/audio.js"></script>
-  <script src="js/game.js"></script>
+  <script src="js/audio.js?v=3"></script>
+  <script src="js/game.js?v=3"></script>
 </body>
 </html>

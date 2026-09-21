@@ -78,6 +78,19 @@ body {
   touch-action: none;
 }
 
+#drag-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  touch-action: none;
+  pointer-events: auto;
+  background: transparent;
+}
+
+#drag-layer.inactive {
+  pointer-events: none;
+}
+
 .overlay {
   position: absolute;
   inset: 0;
@@ -91,7 +104,9 @@ body {
 }
 
 .overlay.hidden {
-  display: none;
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden;
 }
 
 .overlay-box {

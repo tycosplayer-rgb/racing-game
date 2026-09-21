@@ -39,12 +39,10 @@
     lastTs: 0,
     roadPulse: 0,
     nextMilestone: 500,
-    swipe: {
+    drag: {
       active: false,
       pointerId: null,
-      startX: 0,
-      lastX: 0,
-      steer: 0,
+      touchId: null,
       moved: false,
     },
   };
@@ -108,15 +106,34 @@
     state.shake = 0;
     state.roadPulse = 0;
     state.nextMilestone = 500;
-    clearSwipe();
+    clearDrag();
   }
 
-  function clearSwipe() {
-    const s = state.swipe;
-    s.active = false;
-    s.pointerId = null;
-    s.steer = 0;
-    s.moved = false;
+  function clearDrag() {
+    const d = state.drag;
+    d.active = false;
+    d.pointerId = null;
+    d.touchId = null;
+    d.moved = false;
+    const layer = document.getElementById("drag-layer");
+    if (layer) layer.classList.add("inactive");
+  }
+
+  function clampPlayerX(x) {
+    const m = roadMetrics();
+    const p = state.player;
+    if (!p) return x;
+    const margin = p.w * 0.55;
+    return Math.max(m.left + margin, Math.min(m.right - margin, x));
+  }
+
+  function setPlayerXFromClient(clientX) {
+    if (!state.player || state.mode !== "playing") return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width) return;
+    const canvasX = ((clientX - rect.left) / rect.width) * (state.viewW || rect.width);
+    state.player.x = clampPlayerX(canvasX);
+    state.player.vx = 0;
   }
 
   function showOverlay(title, sub, body, btnText) {
@@ -141,11 +158,13 @@
     resetRun();
     state.mode = "playing";
     hideOverlay();
+    const layer = document.getElementById("drag-layer");
+    if (layer) layer.classList.remove("inactive");
   }
 
   function endGame() {
     state.mode = "over";
-    clearSwipe();
+    clearDrag();
     if (SFX) {
       SFX.crash();
       SFX.gameOver();
@@ -250,12 +269,7 @@
     }
 
     const p = state.player;
-    let steer = (state.keys.left ? -1 : 0) + (state.keys.right ? 1 : 0);
-    if (state.swipe.active) {
-      steer += state.swipe.steer;
-      if (steer > 1) steer = 1;
-      if (steer < -1) steer = -1;
-    }
+    const steer = (state.keys.left ? -1 : 0) + (state.keys.right ? 1 : 0);
     const accelBoost = state.keys.accel ? 1 : 0;
 
     // progressive difficulty
@@ -266,21 +280,17 @@
       state.speed += (state.targetSpeed - state.speed) * Math.min(1, dt * 3);
     }
 
-    p.vx += steer * 980 * dt;
-    p.vx *= Math.pow(0.08, dt); // friction-ish damping
-    if (Math.abs(steer) < 0.01) p.vx *= Math.pow(0.02, dt);
-    p.x += p.vx * dt;
-
-    const margin = p.w * 0.55;
-    const minX = m.left + margin;
-    const maxX = m.right - margin;
-    if (p.x < minX) {
-      p.x = minX;
+    // Finger-follow drag owns X; do not let physics yank the car back
+    if (state.drag.active) {
       p.vx = 0;
-    }
-    if (p.x > maxX) {
-      p.x = maxX;
-      p.vx = 0;
+      p.x = clampPlayerX(p.x);
+    } else {
+      p.vx += steer * 980 * dt;
+      p.vx *= Math.pow(0.08, dt);
+      if (Math.abs(steer) < 0.01) p.vx *= Math.pow(0.02, dt);
+      p.x += p.vx * dt;
+      p.x = clampPlayerX(p.x);
+      if (p.x <= m.left + p.w * 0.55 || p.x >= m.right - p.w * 0.55) p.vx = 0;
     }
 
     state.roadOffset += state.speed * dt;
@@ -584,84 +594,158 @@
   bindTouchButton(btnRight, "right");
   bindTouchButton(btnAccel, "accel");
 
-  // Play-area drag / swipe steering (buttons + keyboard still work)
+  // Finger-follow drag on race view (touch primary + pointer; buttons/keyboard still work)
   const canvasWrap = document.getElementById("canvas-wrap");
-  const SWIPE_DEAD = 10; // px
-  const SWIPE_FULL = 54; // px → full steer
+  const dragLayer = document.getElementById("drag-layer");
 
-  function clientToCanvasX(clientX) {
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width) return clientX;
-    return ((clientX - rect.left) / rect.width) * (state.viewW || rect.width);
+  function isUiControlTarget(el) {
+    return !!(el && el.closest && el.closest("button, .tbtn, .mute-btn, #touch-controls, .hud, #overlay-btn"));
   }
 
-  function updateSwipeFromX(clientX) {
-    const s = state.swipe;
-    if (!s.active || !state.player || state.mode !== "playing") return;
-    const canvasX = clientToCanvasX(clientX);
-    const dxFinger = canvasX - s.lastX;
-    // Car slides with finger for "aim by sliding" feel
-    state.player.x += dxFinger;
-    s.lastX = canvasX;
+  function beginDrag(clientX, pointerId, touchId) {
+    if (state.mode !== "playing" || !state.player) return false;
+    if (state.drag.active) return false;
+    if (SFX) SFX.unlock();
+    state.drag.active = true;
+    state.drag.pointerId = pointerId != null ? pointerId : null;
+    state.drag.touchId = touchId != null ? touchId : null;
+    state.drag.moved = false;
+    setPlayerXFromClient(clientX);
+    return true;
+  }
 
-    const dx = canvasX - s.startX;
-    let steer = 0;
-    if (Math.abs(dx) >= SWIPE_DEAD) {
-      steer = dx / SWIPE_FULL;
-      if (steer > 1) steer = 1;
-      if (steer < -1) steer = -1;
-      if (!s.moved && SFX) {
-        SFX.steer();
-        s.moved = true;
+  function moveDrag(clientX) {
+    if (!state.drag.active || state.mode !== "playing") return;
+    if (!state.drag.moved && SFX) {
+      SFX.steer();
+      state.drag.moved = true;
+    }
+    setPlayerXFromClient(clientX);
+  }
+
+  function endDrag() {
+    if (!state.drag.active) return;
+    clearDrag();
+    // Keep layer clickable while still playing
+    if (state.mode === "playing" && dragLayer) dragLayer.classList.remove("inactive");
+  }
+
+  function onDragPointerDown(e) {
+    if (state.mode !== "playing") return;
+    if (isUiControlTarget(e.target)) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    if (!beginDrag(e.clientX, e.pointerId, null)) return;
+    try {
+      (dragLayer || canvas).setPointerCapture(e.pointerId);
+    } catch (_) {}
+  }
+
+  function onDragPointerMove(e) {
+    if (!state.drag.active) return;
+    if (state.drag.pointerId != null && e.pointerId !== state.drag.pointerId) return;
+    e.preventDefault();
+    moveDrag(e.clientX);
+  }
+
+  function onDragPointerUp(e) {
+    if (!state.drag.active) return;
+    if (state.drag.pointerId != null && e.pointerId !== state.drag.pointerId) return;
+    e.preventDefault();
+    try {
+      (dragLayer || canvas).releasePointerCapture(e.pointerId);
+    } catch (_) {}
+    endDrag();
+  }
+
+  function onDragTouchStart(e) {
+    if (state.mode !== "playing") return;
+    if (isUiControlTarget(e.target)) return;
+    if (!e.changedTouches || !e.changedTouches.length) return;
+    if (state.drag.active) return;
+    const t = e.changedTouches[0];
+    e.preventDefault();
+    beginDrag(t.clientX, null, t.identifier);
+  }
+
+  function onDragTouchMove(e) {
+    if (!state.drag.active) return;
+    if (!e.touches || !e.touches.length) return;
+    let t = null;
+    if (state.drag.touchId != null) {
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === state.drag.touchId) {
+          t = e.touches[i];
+          break;
+        }
       }
     }
-    s.steer = steer;
-  }
-
-  function onPlayPointerDown(e) {
-    if (state.mode !== "playing") return;
-    // Ignore UI controls (mute / arrows / accel / overlay button)
-    if (e.target.closest("button, .tbtn, .mute-btn, #touch-controls, .hud")) return;
-    if (e.target.closest("#overlay") && !overlay.classList.contains("hidden")) return;
-    // Only primary touch / left button
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    if (state.swipe.active) return;
-
+    if (!t) t = e.touches[0];
     e.preventDefault();
-    const canvasX = clientToCanvasX(e.clientX);
-    state.swipe.active = true;
-    state.swipe.pointerId = e.pointerId;
-    state.swipe.startX = canvasX;
-    state.swipe.lastX = canvasX;
-    state.swipe.steer = 0;
-    state.swipe.moved = false;
-    try {
-      canvasWrap.setPointerCapture(e.pointerId);
-    } catch (_) {}
+    moveDrag(t.clientX);
   }
 
-  function onPlayPointerMove(e) {
-    if (!state.swipe.active || e.pointerId !== state.swipe.pointerId) return;
+  function onDragTouchEnd(e) {
+    if (!state.drag.active) return;
+    if (state.drag.touchId != null && e.changedTouches) {
+      let ended = false;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === state.drag.touchId) {
+          ended = true;
+          break;
+        }
+      }
+      if (!ended) return;
+    }
     e.preventDefault();
-    updateSwipeFromX(e.clientX);
+    endDrag();
   }
 
-  function onPlayPointerUp(e) {
-    if (!state.swipe.active || e.pointerId !== state.swipe.pointerId) return;
-    e.preventDefault();
-    clearSwipe();
-    try {
-      canvasWrap.releasePointerCapture(e.pointerId);
-    } catch (_) {}
-  }
-
-  canvasWrap.addEventListener("pointerdown", onPlayPointerDown, { passive: false });
-  canvasWrap.addEventListener("pointermove", onPlayPointerMove, { passive: false });
-  canvasWrap.addEventListener("pointerup", onPlayPointerUp, { passive: false });
-  canvasWrap.addEventListener("pointercancel", onPlayPointerUp, { passive: false });
-  canvasWrap.addEventListener("lostpointercapture", () => {
-    if (state.swipe.active) clearSwipe();
+  const dragTargets = [canvas, dragLayer, canvasWrap].filter(Boolean);
+  dragTargets.forEach((el) => {
+    el.addEventListener("pointerdown", onDragPointerDown, { passive: false });
+    el.addEventListener("pointermove", onDragPointerMove, { passive: false });
+    el.addEventListener("pointerup", onDragPointerUp, { passive: false });
+    el.addEventListener("pointercancel", onDragPointerUp, { passive: false });
+    el.addEventListener("touchstart", onDragTouchStart, { passive: false });
+    el.addEventListener("touchmove", onDragTouchMove, { passive: false });
+    el.addEventListener("touchend", onDragTouchEnd, { passive: false });
+    el.addEventListener("touchcancel", onDragTouchEnd, { passive: false });
   });
+
+  // Keep tracking if finger slides outside the canvas
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!state.drag.active) return;
+      onDragTouchMove(e);
+    },
+    { passive: false, capture: true }
+  );
+  document.addEventListener(
+    "touchend",
+    (e) => {
+      if (!state.drag.active) return;
+      onDragTouchEnd(e);
+    },
+    { passive: false, capture: true }
+  );
+  document.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!state.drag.active) return;
+      onDragPointerMove(e);
+    },
+    { passive: false, capture: true }
+  );
+  document.addEventListener(
+    "pointerup",
+    (e) => {
+      if (!state.drag.active) return;
+      onDragPointerUp(e);
+    },
+    { passive: false, capture: true }
+  );
 
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
@@ -740,7 +824,7 @@
   showOverlay(
     "霓虹狂飙",
     "躲避对手与障碍，冲得越远越好",
-    "赛道上左右滑动转向 · 也可点 ◀▶<br/>键盘 ←→ / A D · ↑ W 空格加速",
+    "在赛道上左右拖动，车子跟着移动<br/>也可点 ◀▶ · 键盘 ←→ / A D",
     "开始游戏"
   );
   requestAnimationFrame(loop);
